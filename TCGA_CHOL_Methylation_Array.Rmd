@@ -20,9 +20,9 @@ The data were downloaded and organized into a SummarizedExperiment object using 
 
 Differential methylation between normal and tumor tissues in TCGA-CHOL was investigated. For context and validation, two key resources were consulted:
 
-  1. “Identification of Prognostic Markers in Cholangiocarcinoma        Using Altered DNA Methylation and Gene Expression Profiles” by      Mishra et al. (2020), in which TCGA-CHOL methylation data were      analyzed and the highest density of DMRs was reported on            chromosome 1 and the lowest on chromosome 21 — findings that        were corroborated in this analysis. DMRs on chromosome 19 were      visualized using the Gviz package, producing a plot analogous       to Figure 3 in Mishra et al. (2020).
+  1. “Identification of Prognostic Markers in Cholangiocarcinoma Using Altered DNA Methylation and Gene Expression Profiles” by Mishra et al. (2020), in which TCGA-CHOL methylation data were analyzed and the highest density of DMRs was reported on chromosome 1 and the lowest on chromosome 21 — findings that were corroborated in this analysis. DMRs on chromosome 19 were visualized using the Gviz package, producing a plot analogous to Figure 3 in Mishra et al. (2020).
 
-  2. The Bioconductor workflow “A cross-package Bioconductor            workflow for analysing methylation array data” by Maksimovic,       Phipson, and Oshlack, in which best practices for processing,       quality control, differential methylation analysis, and gene        ontology enrichment of 450k array data were described.
+  2. The Bioconductor workflow “A cross-package Bioconductor workflow for analysing methylation array data” by Maksimovic, Phipson, and Oshlack, in which best practices for processing, quality control, differential methylation analysis, and gene ontology enrichment of 450k array data were described.
 
 The workflow presented here applies Bioconductor tools to analyze TCGA-CHOL methylation array data and may serve as a template for analyzing other methylation datasets.
 
