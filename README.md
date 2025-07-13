@@ -9,6 +9,7 @@ Data source:
 TCGA-CHOL (Cholangiocarcinoma) project, obtained from the Genomic Data Commons (GDC).
 Platform:
 Illumina HumanMethylation450 BeadChip array.
+
 Key steps of the analysis:
 Download and prepare methylation data using TCGAbiolinks.
 Extract beta value matrix from the SummarizedExperiment object.
@@ -26,8 +27,9 @@ Perform gene ontology (GO) enrichment analysis with missMethyl.
 
 🔗 References
 
-Mishra, N. K., et al. (2020). Identification of Prognostic Markers in Cholangiocarcinoma Using Altered DNA Methylation and Gene Expression Profiles. Frontiers in Genetics, 11:522125. https://doi.org/10.3389/fgene.2020.522125
-Maksimovic, J., Phipson, B., & Oshlack, A. (2016). A cross-package Bioconductor workflow for analysing methylation array data. F1000Research, 5:1281. https://doi.org/10.12688/f1000research.8839.2
+Mishra NK, Niu M, Southekal S, Bajpai P, Elkholy A, Manne U, Guda C (2020). Identification of Prognostic Markers in Cholangiocarcinoma Using Altered DNA Methylation and Gene Expression Profiles. Front Genet 11:522125. https://doi.org/10.3389/fgene.2020.522125
+Maksimovic J, Phipson B, Oshlack A (2021). A cross-package Bioconductor workflow for analysing methylation array data. F1000Research, 5:1281. https://doi.org/10.12688/f1000research.8839.2
+
 
 📦 Packages Used
 
