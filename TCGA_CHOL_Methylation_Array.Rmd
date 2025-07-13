@@ -1,0 +1,269 @@
+---
+title: "Analysis of TCGA-CHOL methylation array data"
+author: "Prakash Sah"
+date: "2025-01-19"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    keep_tex: true
+header-includes:
+  - \usepackage{fvextra}
+  - \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+
+---
+
+1. Introduction
+
+In this analysis, DNA methylation profiling of cholangiocarcinoma (CCA) was performed using data from the TCGA-CHOL project. The methylation data were generated with the Illumina HumanMethylation450 BeadChip array, which interrogates over 450,000 CpG sites across the human genome. Preprocessed data were provided by TCGA through the Genomic Data Commons (GDC) as Masked Intensities and Beta Values, computed with the sesame pipeline. Signal masking and normalization were applied to improve reliability and reproducibility.
+
+The data were downloaded and organized into a SummarizedExperiment object using the GDCprepare() function from the TCGAbiolinks package. This object contained sample-level metadata, probe annotations, and analysis-ready beta values derived via sesame. Alternatively, masked intensities can be downloaded and processed manually with sesame for more granular control over quality control and normalization, which mirrors the steps already applied to the GDC-provided beta values.
+
+Differential methylation between normal and tumor tissues in TCGA-CHOL was investigated. For context and validation, two key resources were consulted:
+
+  1. “Identification of Prognostic Markers in Cholangiocarcinoma        Using Altered DNA Methylation and Gene Expression Profiles” by      Mishra et al. (2020), in which TCGA-CHOL methylation data were      analyzed and the highest density of DMRs was reported on            chromosome 1 and the lowest on chromosome 21 — findings that        were corroborated in this analysis. DMRs on chromosome 19 were      visualized using the Gviz package, producing a plot analogous       to Figure 3 in Mishra et al. (2020).
+
+  2. The Bioconductor workflow “A cross-package Bioconductor            workflow for analysing methylation array data” by Maksimovic,       Phipson, and Oshlack, in which best practices for processing,       quality control, differential methylation analysis, and gene        ontology enrichment of 450k array data were described.
+
+The workflow presented here applies Bioconductor tools to analyze TCGA-CHOL methylation array data and may serve as a template for analyzing other methylation datasets.
+
+2. Methods Overview
+
+After downloading the methylation data with TCGAbiolinks::GDCprepare(), the beta value matrix was extracted from the SummarizedExperiment using the assay() function. Problematic probes were filtered out following standard practice: probes with missing values (NA), probes mapping to sex chromosomes (chrX, chrY), probes overlapping common SNPs (minor allele frequency ≤ 0.05), and known cross-reactive probes (Chen et al., 2013) were removed. Quality control of the filtered beta values was assessed using density plots and multidimensional scaling (MDS) plots generated with functions from the minfi package.
+
+To better approximate normality for statistical modeling, beta values were converted into M-values using the logit transformation. Differentially methylated probes (DMPs) were identified using the limma package, modeling tissue type (tumor vs. normal) as the primary covariate. Differentially methylated regions (DMRs) were then identified using the DMRcate package, which aggregates nearby DMPs into contiguous regions of differential methylation.
+
+For visualization of DMRs, the Gviz package was used to create custom genome tracks, including gene annotations and methylation signal profiles, with a focus on regions of interest such as chromosome 19. Finally, gene ontology enrichment analysis was performed on significant probes using the missMethyl package, which accounts for the varying number of CpG sites per gene when testing for pathway enrichment.
+
+Libraries used: 
+TCGAbiolinks  
+sesame  
+minfi  
+IlluminaHumanMethylation450kanno.ilmn12.hg19  
+limma  
+DMRcate  
+missMethyl  
+Gviz  
+GenomicRanges  
+RColorBrewer
+
+```{r, include=FALSE}
+library(TCGAbiolinks)
+library(sesame)
+library(minfi)
+library(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+library(limma)
+library (DMRcate)
+library(missMethyl)
+library(Gviz)
+library(GenomicRanges)
+library(RColorBrewer)
+```
+
+3. Download and prepare data
+
+```{r}
+# Download TCGA-CHOL dataset (methylation array dataset for cholangiocarcinoma samples).
+TCGA_CHOL_query = GDCquery(project = "TCGA-CHOL", data.category = "DNA Methylation", data.type = "Masked Intensities", platform = "Illumina Human Methylation 450")
+GDCdownload(TCGA_CHOL_query)
+TCGA_CHOL_data = GDCprepare(TCGA_CHOL_query) # creates a summarized experiment object (requires semame package)
+saveRDS(TCGA_CHOL_data, file = "TCGA_CHOL_data.rds")
+
+# Extract beta value matrix and sample information
+beta_mat = assay(TCGA_CHOL_data) # access the matrix of beta values for each CpGs
+coldata = colData(TCGA_CHOL_data) # sample information
+```
+```{r}
+# QC plots
+densityPlot(beta_mat, sampGroups = coldata$tissue_type) #density plot to examine beta values
+plotMDS(beta_mat, top = 1000, labels = coldata$tissue_type, col = as.numeric(as.factor(coldata$tissue_type)), gene.selection = "common", main = "MDS plot of TCGA-CHOL samples")
+legend("topright", legend = levels(as.factor(coldata$tissue_type)), col = 1:length(unique(coldata$tissue_type)), pch = 16)
+
+## Filter probes
+# Load 450k annotation
+ann450k = getAnnotation(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+
+# Remove probes with any NA
+table(rowSums(is.na(beta_mat))==0) # examine number of probes with at one or more NA
+beta_mat = beta_mat[rowSums(is.na(beta_mat)) == 0, ]
+
+# Remove probes on sex chromosomes
+sex_probes = ann450k$Name[ann450k$chr %in% c("chrX", "chrY")]
+beta_mat = beta_mat[!(rownames(beta_mat) %in% sex_probes), ]
+
+# Remove probes overlapping known SNPs
+no_snp_probes = ann450k$Name[is.na(ann450k$Probe_rs)]         # probes with no SNP
+snp_probes = ann450k[!is.na(ann450k$Probe_rs), ]               # probes with SNPs
+good_snp_probes = snp_probes$Name[snp_probes$Probe_maf <= 0.05] # SNPs with MAF ≤ 0.05
+
+keep_probes = c(no_snp_probes, good_snp_probes)
+beta_mat = beta_mat[rownames(beta_mat) %in% keep_probes, ]
+
+# Remove cross-reactive probes (Chen et al. 2013)
+# Download and remove cross-reactive probes
+url <- "https://raw.githubusercontent.com/hamidghaedi/Methylation_Analysis/master/cross_reactive_probe.chen2013.csv"
+download.file(url, destfile = "cross_reactive_probe.chen2013.csv", mode = "wb")
+cross_reactive = read.csv("cross_reactive_probe.chen2013.csv")
+cross_reactive_ids = cross_reactive$TargetID[-1]  # remove header
+beta_mat = beta_mat[!rownames(beta_mat) %in% cross_reactive_ids, ]
+
+# QC plots with filtered beta values matrix
+densityPlot(beta_mat, sampGroups = coldata$tissue_type) #density plot to examine beta values after filtering 
+plotMDS(beta_mat, top = 1000, labels = coldata$tissue_type, col = as.numeric(as.factor(coldata$tissue_type)), gene.selection = "common", main = "MDS plot of TCGA-CHOL samples")
+legend("topright", legend = levels(as.factor(coldata$tissue_type)), col = 1:length(unique(coldata$tissue_type)), pch = 16)
+
+# Transforms beta values to M values using the logit transformation: M = log2(β / (1 - β)) with an offset to prevent infinite values when β = 0 or 1.
+beta2m = function(beta_mat, offset = 1e-6) {
+  beta_mat = pmin(pmax(beta_mat, offset), 1 - offset)
+  log2(beta_mat / (1 - beta_mat))
+}
+
+mval_mat = beta2m(beta_mat)
+
+# Or use MValueToBetaValue() function from the sesame package
+# mval_mat = BetaValueToMValue(beta_mat)
+
+# Save Cleaned Matrices
+saveRDS(beta_mat, "TCGA-CHOL_beta_matrix_filtered.rds")
+saveRDS(mval_mat, "TCGA-CHOL_mvalue_matrix_filtered.rds")
+
+# QC plots can now also be performed using the M value matrix
+```
+
+4. Differential methylation analysis using limma
+
+```{r}
+# Differential methylation analysis
+design = model.matrix(~ coldata$tissue_type)
+fit = lmFit(mval_mat, design)
+fit2 = eBayes(fit)
+# extract results with annotation
+ann450k_sub <- ann450k[match(rownames(mval_mat), ann450k$Name), 
+                       c(1:4, 12:19, 24:ncol(ann450k))]
+DMPs = topTable(fit2, coef=2, number=Inf, genelist = ann450k_sub)
+head(DMPs)
+
+# plot top 10 differentially methylated probes
+par(mfrow=c(2,5))
+sapply(rownames(DMPs)[1:10], function(cpg){
+plotCpg(beta_mat, cpg=cpg, pheno=coldata$tissue_type, ylab="Beta values")
+})
+```
+
+5. Identify differential methylated regions using DMRcate
+
+```{r}
+## Differentially methylated regions
+my_annotation = cpg.annotate(object = mval_mat, datatype = "array", what = "M", analysis.type = "differential", design = design, contrasts = FALSE, coef = 2, arraytype = "450K")
+my_annotation
+DMRs = dmrcate(my_annotation, lambda = 1000, C = 2)
+result.ranges = extractRanges(DMRs)
+result.ranges
+
+# DMRs by chromosome
+table(seqnames(result.ranges))
+# The highest density of DMRs was reported on chromosome 1 and the lowest on chromosome 21 as also observed in analysis by Mishra et al.
+```
+
+6. Visualization of DMRs using Gviz
+
+```{r}
+### custom plot of DMRs using Gviz
+gen = "hg19" #genome version to be used
+dmrIndex = 6 # DMR index. This DMR was also identified by Mishra et al in their TGCA-CHOL analysis (See reference).
+
+# sample group colors
+pal = brewer.pal(length(unique(coldata$tissue_type)), "Set1")
+names(pal) = unique(coldata$tissue_type)
+cols = pal[coldata$tissue_type]
+
+# Extract region of interest
+chrom = as.character(seqnames(result.ranges[dmrIndex]))
+start = as.numeric(start(result.ranges[dmrIndex]))
+end   = as.numeric(end(result.ranges[dmrIndex]))
+# Add some padding (25% extra space) to view context
+minbase = start - 0.25 * (end - start)
+maxbase = end   + 0.25 * (end - start)
+
+## load annotation tracks
+# CpG islands file (from UCSC)
+islands = read.table("cpgIslandExt.txt", header=FALSE, stringsAsFactors=FALSE)
+islandData = GRanges(seqnames = islands[,2],
+              ranges = IRanges(start=islands[,3], end=islands[,4]),
+              strand = "*")
+# filter CpG islands to region of interest
+roi <- GRanges(seqnames = chrom, ranges = IRanges(start = minbase, end = maxbase))
+islandData_sub <- subsetByOverlaps(islandData, roi)
+
+# DNase hypersensitive sites file (from UCSC)
+dnase = read.table("wgEncodeRegDnaseClusteredV3.txt", header=FALSE, stringsAsFactors=FALSE)
+dnaseData = GRanges(seqnames = dnase[,2],
+                     ranges = IRanges(start=dnase[,3]+1, end=dnase[,4]),
+                     strand = "*", 
+                     data = dnase[,5])
+# filter DNase data to the region of interest
+roi <- GRanges(seqnames = chrom, ranges = IRanges(start = minbase, end = maxbase))
+dnaseData_sub <- subsetByOverlaps(dnaseData, roi)
+
+## prepare methylation data
+# make sure annotation and beta matrix are in same order
+ann450kOrd = ann450k[order(ann450k$chr, ann450k$pos), ]
+bValsOrd  = beta_mat[match(ann450kOrd$Name, rownames(beta_mat)), ]
+
+# extract probes overlapping the DMR
+cpgData = GRanges(seqnames = ann450kOrd$chr,ranges = IRanges(start=ann450kOrd$pos, end=ann450kOrd$pos), strand = "*", betas = bValsOrd)
+
+cpgData = subsetByOverlaps(cpgData, result.ranges[dmrIndex])
+
+## Create Gviz tracks
+# ideogram and axis
+iTrack = IdeogramTrack(genome=gen, chromosome=chrom, name="")
+gTrack = GenomeAxisTrack(col="black", cex=1, name="", fontcolor="black")
+
+# RefSeq track
+rTrack = UcscTrack(genome=gen, chromosome=chrom, track ="NCBI RefSeq", table = "refGene", from=minbase, to=maxbase,  trackType="GeneRegionTrack", rstarts="exonStarts", rends="exonEnds", gene="name", symbol="name2", transcript="name", strand="strand", fill="darkblue", stacking="squish", name="RefSeq", showId=TRUE, geneSymbol=TRUE)
+
+# CpG islands track
+islandTrack = AnnotationTrack(range=islandData_sub, genome=gen, name="CpG Is.", chromosome=chrom, fill="darkgreen")
+
+# DNase hypersensitive sites track
+dnaseTrack = AnnotationTrack(range=dnaseData_sub, genome=gen, name="DNaseI", chromosome=chrom, fill="orange")
+
+# DMR track
+dmrTrack = AnnotationTrack(start=start, end=end, genome=gen, name="DMR", chromosome=chrom, fill="red")
+
+# Methylation data track
+methTrack = DataTrack(range=cpgData, genome=gen, chromosome=chrom,
+                       groups=coldata$tissue_type, type=c("a","p"),
+                       col=pal, name="Beta values", legend=TRUE,
+                       background.panel="white", ylim=c(-0.05,1.05),
+                       cex.title=0.8, cex.axis=0.8, cex.legend=0.8)
+
+## combine all tracks and plot
+tracks = list(iTrack, gTrack, methTrack, dmrTrack, islandTrack, dnaseTrack, rTrack)
+sizes  = c(2, 2, 5, 2, 2, 2, 3)  # relative heights
+
+plotTracks(tracks, from=minbase, to=maxbase, showTitle=TRUE, add53=TRUE, add35=TRUE,lty.grid=3, sizes=sizes, main="DMR6 identified on Chromosome 19")
+```
+
+7. Gene ontology analysis using missMethyl
+
+```{r}
+## GO analysis
+# get significant probes with adjusted p value <0.05
+sigCpGs <- DMPs$Name[DMPs$adj.P.Val<0.05]
+sigCpGs[1:10]
+
+# get all probes 
+all = DMPs$Name
+
+# run enrichment
+gst <- gometh(sig.cpg=sigCpGs, all.cpg=all)
+topGSA(gst)
+
+```
+
+References
+
+1. Mishra, N. K., Niu, M., Southekal, S., Bajpai, P., Elkholy, A., Manne, U., & Guda, C. (2020). Identification of Prognostic Markers in Cholangiocarcinoma Using Altered DNA Methylation and Gene Expression Profiles. Frontiers in Genetics, 11, 522125. https://doi.org/10.3389/fgene.2020.522125
+
+2. Maksimovic, J., Phipson, B., & Oshlack, A. (2016). A cross-package Bioconductor workflow for analysing methylation array data. F1000Research, 5, 1281. https://doi.org/10.12688/f1000research.8839.2
