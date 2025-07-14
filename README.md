@@ -15,14 +15,14 @@ Download and prepare methylation data using TCGAbiolinks.
 Extract beta value matrix from the SummarizedExperiment object.
 Perform quality control (QC) and visualize distributions (density plots, PCA).
 Filter out problematic probes:
-Probes with missing values (NA).
-Probes on sex chromosomes (chrX, chrY).
-Probes overlapping SNPs (MAF > 0.05).
-Cross-reactive probes (Chen et al., 2013).
+  Probes with missing values (NA).
+  Probes on sex chromosomes (chrX, chrY).
+  Probes overlapping SNPs (MAF > 0.05).
+  Cross-reactive probes (Chen et al., 2013).
 Convert beta values to M-values for statistical testing.
 Identify DMPs using the limma package.
 Identify DMRs using the DMRcate package.
-Visualize DMRs using Gviz.
+Visualize DMRs using Gviz (generate plot analogous to figure 3 from Mishra et al 2020).
 Perform gene ontology (GO) enrichment analysis with missMethyl.
 
 🔗 References
